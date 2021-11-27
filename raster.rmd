@@ -1,0 +1,202 @@
+---
+title: "BIO 5700 Raster Exercise"
+author: "Sarah Krueger"
+output:
+  html_document: 
+    df_print: paged
+    rows.print: 10
+    theme: cosmo
+    highlight: breezedark
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document: default
+  html_notebook:
+    df_print: paged
+    rows.print: 10
+    theme: cosmo
+    highlight: breezedark
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options:
+  chunk_output_type: inline
+  mode: gfm
+---
+
+```{=html}
+<style type="text/css">
+
+h1.title {
+  font-size: 40px;
+  font-family: "Times New Roman", Times, serif;
+  color: Black;
+  text-align: center;
+}
+
+h4.author { /* Header 4 - and the author and data headers use this too  */
+  font-size: 25px;
+  font-family: "Times New Roman", Times, serif;
+  font-weight: bold;
+  color: Black;
+  text-align: center;
+}
+
+body {
+  font-family: Helvetica;
+  font-size: 12pt;
+}
+
+.zoom {
+  transform-origin: 40% 50% 0;
+  transition: transform .2s;
+  margin: 0 auto;
+}
+.zoom img{
+	width:auto;
+	height:auto;	
+}
+.zoom:hover {
+  transform: scale(2);
+}
+
+th, td {padding: 5px;}
+
+</style>
+```
+
+<body style="background-color:#fc9272;">
+---
+
+```{r, message = FALSE, error = FALSE, include = FALSE}
+library(tidyverse)
+```
+
+```{r, error = FALSE, message = FALSE, include = FALSE}
+packages<-c('ggnewscale','raster','rgdal')
+sapply(packages, install.packages, character.only = TRUE)
+sapply(packages, require, character.only = TRUE)
+```
+
+```{r,error = FALSE, message = FALSE, include = FALSE}
+library(broom)
+packages2 <- c("ggsn","leaflet","mapdata","maptools","OpenStreetMap","rgdal")
+sapply(packages2, install.packages, character.only = TRUE)
+sapply(packages2, require, character.only = TRUE)
+```
+
+![](pics/nm.jpg)
+
+# DEM Upload 
+
+I began by downloading a TIF file encompassing Albuquerque, New Mexico and surrounding cities around the Cibola National Forest.
+
+I then used the 'raster' package to quickly plot the DEM TIF file.
+
+```{r}
+dem <- raster('dem.tif')
+plot(dem,col=grey(1:100/100),legend=F)
+```
+
+I also converted the DEM to a dataframe capable of being plotted in ggplot.
+
+```{r}
+dem_df <- data.frame(rasterToPoints(dem))
+colnames(dem_df) <- c("x","y","dem")
+ggplot(dem_df) + geom_raster(aes(x = x, y = y, fill = dem)) +coord_fixed()
+```
+
+I then created breaks on the DEM values to provide discrete values for display.
+
+```{r}
+breaks <- seq(min(dem_df$dem),max(dem_df$dem), length.out=100)
+head(breaks)
+```
+
+Next, I created contour lines using the nlevels argument by setting the contour interval. Once the lines were created, fortify was used to create a dataframe and merge was used to connect the fortified dataset to the original elevation data.
+
+```{r}
+isolines <- rasterToContour(dem, nlevels = 20)
+contours <- fortify(isolines)
+z_values <- data.frame(rasterToContour(dem, nlevels = 20))
+z_values$names <- rownames(z_values)
+rownames(z_values) <- NULL
+contour_lines <- merge(x = contours, y = z_values, by.x = "id", by.y = "names", all = TRUE)
+head(contour_lines)
+```
+
+I then used 'ggplot' to display the DEM as well as the contours and utilize the breaks to display the color scheme.
+
+```{r}
+ggplot() + geom_raster(data = dem_df, aes(x = x, y = y, fill = dem)) +
+  scale_fill_gradientn(colours = c("#feebe2","#fcc5c0", "#fa9fb5","#f768a1", "#c51b8a", "#7a0177"), breaks = breaks, guide = "none") +
+  geom_path(data = contour_lines, aes(x=long, y = lat, group = group), color = "black") +
+  coord_fixed() + theme(legend.position = "bottom")
+```
+
+# Hillshade
+
+I created a slope and aspect dataset to create a hillshade and then set the sun angle to 50 and azimuth to 280 to create the hillshade image.
+
+```{r}
+slope <- terrain(dem, opt='slope')
+aspect <- terrain(dem, opt='aspect')
+hill <- hillShade(slope, aspect, 50, 280)
+plot(hill, col=grey(0:100/100), legend=FALSE)
+```
+
+I then converted the hillshade to a dataframe suitable for use in ggplot.
+
+```{r}
+hill_df <- data.frame(rasterToPoints(hill))
+```
+
+# Final Plot
+
+Here is my final plot for the data.
+
+```{r, message = FALSE, error = FALSE}
+ggplot() + 
+geom_raster(data = hill_df, aes(x = x, y = y, fill = layer)) +
+  scale_fill_gradientn(colours = grey(1:100/100), guide = "none") +
+  new_scale_fill() +
+  geom_raster(data = dem_df, aes(x = x, y = y, fill = dem), alpha = 0.5) +
+  scale_fill_gradientn(colours = c("#feebe2","#fcc5c0","#fa9fb5","#f768a1","#c51b8a","#7a0177"), breaks = breaks, guide = "none") +
+  geom_path(data = contour_lines, aes(x=long, y = lat, group = group), color = "gray", alpha = 0.5, linetype = "dashed") +
+  coord_fixed(xlim = c(-107,-106), ylim = c(35,36)) + theme(legend.position = "bottom") +
+  north(dem_df, location = "bottomleft",scale = 0.009, symbol = 12, anchor = c(x= -106.9, y= 35.10)) + 
+  scalebar(contour_lines, dist = 10, dist_unit = "mi", transform = TRUE, location = "bottomleft", st.dist = 0.025, anchor = c(x=-106.75,y=35.05))
+```
+
+# New Mexico Map
+
+Here is an interactive map of New Mexico and Cibola National Park.
+
+```{r}
+siteOGR <- readOGR("C:/Users/skrueger/Desktop/Advanced Methods/Raster/Cibola.point.kml")
+```
+
+```{r, message = FALSE, error = FALSE}
+nm_point <- as.data.frame(cbind(siteOGR@data,siteOGR@coords))
+
+nm_point
+
+nm_point[2] <- NULL
+nm_point[4] <- NULL
+colnames(nm_point) <- c("Name","X","Y")
+
+leaflet(siteOGR) %>% 
+  addTiles() %>% 
+  addMarkers(popup = siteOGR@data$Name) %>%
+  addCircleMarkers(popup = siteOGR@data$Name,
+                   label = siteOGR@data$Description,
+                   weight = 2,
+                   color = "grey",
+                   fillColor = "pink",
+                   fillOpacity = 0.7)
+
+```
